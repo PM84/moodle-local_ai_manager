@@ -17,6 +17,7 @@
 namespace local_ai_manager;
 
 use context;
+use core\exception\invalid_parameter_exception;
 use core_plugin_manager;
 use local_ai_manager\hook\additional_user_restriction;
 use local_ai_manager\hook\purpose_usage;
@@ -318,12 +319,21 @@ class ai_manager_utils {
         ?string $tenant = null,
         ?array $selectedpurposes = []
     ): array {
-        if (!is_null($tenant)) {
-            $tenant = new tenant($tenant);
-            \core\di::set(tenant::class, $tenant);
+        try {
+            if (!is_null($tenant)) {
+                $tenant = new tenant($tenant);
+                \core\di::set(tenant::class, $tenant);
+            }
+                $tenant = \core\di::get(tenant::class);
+        } catch (invalid_parameter_exception) {
+            return [
+                'availability' => [
+                    'available' => self::AVAILABILITY_HIDDEN,
+                    'errormessage' => '',
+                ],
+                'purposes' => [],
+            ];
         }
-        $tenant = \core\di::get(tenant::class);
-
         $installedpurposes = array_keys(core_plugin_manager::instance()->get_installed_plugins('aipurpose'));
         if (empty($selectedpurposes)) {
             // If no purpose is specified, we return the config for all purposes.
@@ -543,6 +553,22 @@ class ai_manager_utils {
             }
 
             $purposeinstance = $factory->get_purpose_by_purpose_string($purpose);
+
+            // Provide an additional hook for further limiting access.
+            // This must run before the configuration checks below, so that plugins like block_ai_control
+            // can hide purposes even if they are not configured (which would otherwise result in 'disabled'
+            // status and skip this hook entirely).
+            $restrictionhook = new additional_user_restriction($userinfo, $context, $purposeinstance);
+            \core\di::get(\core\hook\manager::class)->dispatch($restrictionhook);
+            if (!$restrictionhook->is_allowed()) {
+                $purposes[] = [
+                    'purpose' => $purpose,
+                    'available' => self::AVAILABILITY_HIDDEN,
+                    'errormessage' => $restrictionhook->get_message(),
+                ];
+                continue;
+            }
+
             $userusage = new userusage($purposeinstance, $user->id);
             if (empty($purposeconfig[$purpose])) {
                 $purposes[] = [
@@ -590,18 +616,6 @@ class ai_manager_utils {
                         'local_ai_manager',
                         get_string('pluginname', 'aipurpose_' . $purpose)
                     ),
-                ];
-                continue;
-            }
-
-            // Provide an additional hook for further limiting access.
-            $restrictionhook = new additional_user_restriction($userinfo, $context, $purposeinstance);
-            \core\di::get(\core\hook\manager::class)->dispatch($restrictionhook);
-            if (!$restrictionhook->is_allowed()) {
-                $purposes[] = [
-                    'purpose' => $purpose,
-                    'available' => self::AVAILABILITY_HIDDEN,
-                    'errormessage' => $restrictionhook->get_message(),
                 ];
                 continue;
             }
@@ -675,5 +689,23 @@ class ai_manager_utils {
             $returnarray['purposes'][] = $purposearray;
         }
         return $returnarray;
+    }
+
+    /**
+     * Returns all model IDs that are assigned to a given connector.
+     *
+     * @param string $connector The connector plugin name (e.g. 'chatgpt', 'dalle', 'gemini')
+     * @return array Array of model IDs (int) assigned to the connector
+     */
+    public static function get_model_ids_by_connector(string $connector): array {
+        global $DB;
+
+        $sql = "SELECT m.id
+                  FROM {local_ai_manager_model} m
+                  JOIN {local_ai_manager_model_connector} mp ON mp.modelid = m.id
+                 WHERE mp.connector = :connector
+              ORDER BY m.name ASC";
+
+        return $DB->get_fieldset_sql($sql, ['connector' => $connector]);
     }
 }

@@ -472,11 +472,9 @@ final class ai_manager_utils_test extends \advanced_testcase {
         $configmanager->set_config('chat_max_requests_basic', 50);
         $blockcontextid = \context_block::instance($block->id)->id;
 
-        $chatgptinstance = new instance();
-        $chatgptinstance->set_model('gpt-4o');
-
         $factory = \core\di::get(\local_ai_manager\local\connector_factory::class);
         $instance = $factory->get_new_instance('chatgpt');
+        $instance->set_model_id_from_name('gpt-4o');
         $instance->store();
 
         $configmanager->set_config(base_purpose::get_purpose_tool_config_key('chat', userinfo::ROLE_BASIC), $instance->get_id());
@@ -542,6 +540,16 @@ final class ai_manager_utils_test extends \advanced_testcase {
         });
         $chatpurposeconfig = ai_manager_utils::get_ai_config($user, $blockcontextid, null, ['chat'])['purposes'][0];
         $this->assertEquals($chatpurposeconfig['available'], ai_manager_utils::AVAILABILITY_HIDDEN);
+
+        // The hook must also hide the purpose if a config check would mark it as disabled,
+        // for example because the user has exceeded the quota.
+        $userusage->set_currentusage(100);
+        $userusage->store();
+        $chatpurposeconfig = ai_manager_utils::get_ai_config($user, $blockcontextid, null, ['chat'])['purposes'][0];
+        $this->assertEquals($chatpurposeconfig['available'], ai_manager_utils::AVAILABILITY_HIDDEN);
+        $userusage->set_currentusage(10);
+        $userusage->store();
+
         $hookmanager->phpunit_stop_redirections();
         $hookmanager->phpunit_redirect_hook(additional_user_restriction::class, function ($hook) {
             $hook->set_access_allowed(true);

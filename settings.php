@@ -50,6 +50,12 @@ if ($hassiteconfig) {
             )
         );
 
+        $settings->add(new admin_setting_check(
+            'local_ai_manager/validtenantcolumnidentifiers',
+            new  \local_ai_manager\check\tenantcolumn_identifiers_valid(),
+            true
+        ));
+
         $settings->add(
             new admin_setting_configselect(
                 'local_ai_manager/tenantcolumn',
@@ -86,7 +92,7 @@ if ($hassiteconfig) {
             new admin_setting_configcheckbox(
                 'local_ai_manager/restricttenants',
                 new lang_string('restricttenants', 'local_ai_manager'),
-                new lang_string('restricttenants', 'local_ai_manager'),
+                new lang_string('restricttenantsdesc', 'local_ai_manager'),
                 0
             )
         );
@@ -212,6 +218,16 @@ if ($hassiteconfig) {
 
     $ADMIN->add('local_ai_manager_settings', $aitoolssettingpage);
     $ADMIN->add('local_ai_manager_settings', $aipurposessettingpage);
+
+    $ADMIN->add(
+        'local_ai_manager_settings',
+        new admin_externalpage(
+            'local_ai_manager_manage_models',
+            get_string('manage_models', 'local_ai_manager'),
+            new moodle_url('/local/ai_manager/manage_models.php'),
+            'local/ai_manager:managemodels'
+        )
+    );
 
     $ADMIN->add(
         'local_ai_manager_settings',
